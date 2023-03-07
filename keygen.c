@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define MAX_KEY_LEN 700000
+#define MAX_KEY_LEN 100000
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {

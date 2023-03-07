@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
     int socketFD, portNumber, charsWritten, charsRead;
     struct sockaddr_in serverAddress;
     struct hostent* serverHostInfo;
-    char buffer[MAX_BUFFER_SIZE]= {'\0'};
+    char buffer[10]= {'\0'};
     char plaintext[MAX_BUFFER_SIZE] = {'\0'};
     char key[MAX_BUFFER_SIZE]={'\0'};
     char ciphertext[MAX_BUFFER_SIZE]= {'\0'};
@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Set up buffer
-    memset(buffer, '\0', MAX_BUFFER_SIZE);
+    memset(buffer, '\0', 10);
     strcpy(buffer, "enc_client\n");
     
 
@@ -77,6 +77,8 @@ int main(int argc, char *argv[]) {
     if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
         error("ERROR connecting");
     }
+
+    
     // Send verification to the server
     
     if (send(socketFD, buffer, strlen(buffer), 0) < 0) {
@@ -88,10 +90,6 @@ int main(int argc, char *argv[]) {
         error("ERROR writing to socket");
     }
 
-    // if (send(socketFD, "#", 1, 0) < 0) {
-    //     error("ERROR writing to socket");
-    // }
-   
     // Send key to the server
     if (send(socketFD, key, strlen(key), 0) < 0) {
         error("ERROR writing to socket");

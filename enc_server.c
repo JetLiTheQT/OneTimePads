@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define MAX_BUFFER_SIZE 70001
+#define MAX_BUFFER_SIZE 100000
 
 // Error function used for reporting issues
 void error(const char *msg) {
@@ -26,27 +26,61 @@ void setupAddressStruct(struct sockaddr_in* address, int portNumber){
     address->sin_addr.s_addr = INADDR_ANY;
 }
 
+// // Encrypt plaintext using one-time pad with key
+// void encrypt(char* ciphertext, const char* plaintext, const char* key) {
+//     int i;
+//     int length = strlen(plaintext);
+//     for (i = 0; i < length; i++) {
+//         ciphertext[i] = '\0';
+//         int p = plaintext[i] - 'A'; // Plaintext character as integer (0-25)
+//         int k = key[i] - 'A'; // Key character as integer (0-25)
+//         int c = (p + k) % 27; // Ciphertext character as integer (0-26)
+//         if (c == 26) { // Space
+//             ciphertext[i] = ' ';
+//         } else { // A-Z
+//             ciphertext[i] = (c + 'A') % 27 + 'A';
+//         }
+//     }
+//     ciphertext[length] = '\0';
+// }
 // Encrypt plaintext using one-time pad with key
 void encrypt(char* ciphertext, const char* plaintext, const char* key) {
-    printf("Plaintext: %s \n Key: %s\n ", plaintext, key);
     int i;
     int length = strlen(plaintext);
     for (i = 0; i < length; i++) {
         ciphertext[i] = '\0';
         int p = plaintext[i] - 'A'; // Plaintext character as integer (0-25)
         int k = key[i] - 'A'; // Key character as integer (0-25)
-        int c = (p + k) % 27; // Ciphertext character as integer (0-26)
-        if (c == 26) { // Space
-            ciphertext[i] = ' ';
+        int c;
+        if (plaintext[i] == ' ') { // Space
+            c = 26;
         } else { // A-Z
-            ciphertext[i] = c + 'A';
+            c = (p + k) % 26;
         }
+        ciphertext[i] = c + 'A';
     }
     ciphertext[length] = '\0';
-    printf("Encryption output: %s", ciphertext);
 }
-
-
+// // Encrypt plaintext using one-time pad with key
+// void encrypt(char* ciphertext, const char* plaintext, const char* key) {
+//     int i;
+//     int length = strlen(plaintext);
+//     for (i = 0; i < length; i++) {
+//         int p = plaintext[i];
+//         int k = key[i];
+//         if (p == ' ') { // space
+//             ciphertext[i] = ' ';
+//         } else if (p < 'A' || p > 'Z') { // check for bad characters
+//             printf("encrypt error: input contains bad characters\n");
+//             memset(ciphertext, 0, length); // set entire ciphertext to null
+//             return;
+//         } else {
+//             int c = (p - 'A' + k - 'A') % 26; // Ciphertext character as integer (0-25)
+//             ciphertext[i] = c + 'A'; // A-Z
+//         }
+//     }
+//     ciphertext[length] = '\0';
+// }
 
 
 int main(int argc, char *argv[]){
@@ -65,6 +99,12 @@ int main(int argc, char *argv[]){
     listenSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (listenSocket < 0) {
         error("ERROR opening socket");
+    }
+
+    // Allow reuse of port if already in use
+    int yes = 1;
+    if (setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) == -1) {
+        error("ERROR setting socket options");
     }
 
     // Set up the address struct for the server socket
@@ -86,8 +126,6 @@ int main(int argc, char *argv[]){
             error("ERROR on accept");
         }
 
-        printf("Connection accepted!\n");
-
         // Fork a child process to handle this connection
         pid_t pid = fork();
         if (pid < 0) {
@@ -96,69 +134,73 @@ int main(int argc, char *argv[]){
 
         if (pid == 0) {
             // In child process
-            // Reset charsRead
+
+            //We need to verify that the incoming requests are the enc_client. Here we set up a recv() command to confirm the client.
+
+                // Reset charsRead
                 charsRead = 0;
-            // Initialize the buffer with null terminators
-                memset(buffer, '\0', MAX_BUFFER_SIZE);
+                // Initialize the buffer with null terminators
+                memset(buffer, '\0', 10);
 
-            // Receive data from the socket into the buffer
-            charsRead = recv(connectionSocket, buffer, MAX_BUFFER_SIZE - 1, 0);
+                // Receive data from the socket into the buffer
+                charsRead = recv(connectionSocket, buffer, 10, 0);
 
-            // Check if there was an error
-            if (charsRead < 0) {
-                error("ERROR reading from socket");
+                // Check if there was an error
+                if (charsRead < 0) {
+                    error("ERROR reading from socket");
+                }
+                buffer[charsRead] = '\0';
+                // Print the received data
+                // printf("Received data: %s\n", buffer);
+                //printf("Received identifier: %s\n charsRead size: %d\n", buffer, charsRead); // TESTING
+                if (strcmp(buffer, "enc_client") != 0) {
+                    fprintf(stderr, "SERVER: ERROR, client is not enc_client\n");
+                    close(connectionSocket);
+                    exit(1);
+                }
+
+            // Reset charsRead
+            charsRead = 0;
+
+            // Receive plaintext from the client
+                memset(plaintext, '\0', MAX_BUFFER_SIZE);
+                charsRead = recv(connectionSocket, plaintext, MAX_BUFFER_SIZE - 1, 0);
+                if (charsRead < 0) {
+                    error("ERROR reading from socket");
+                }
+                // printf("SERVER POST RECEIVE PLAINTEXT: %s", plaintext);
+            // // Reset charsRead
+            // charsRead = 0;
+
+            // // Receive key from the client
+                memset(key, '\0', MAX_BUFFER_SIZE);
+            //     charsRead = recv(connectionSocket, key, MAX_BUFFER_SIZE - 1, 0);
+            //     if (charsRead < 0) {
+            //         error("ERROR reading from socket");
+            //     }
+            if (plaintext[0] == '\n') {  // Check if the buffer starts with a newline character
+                char *token;
+                // Tokenize the buffer based on the newline character, starting from the second character
+                token = strtok(plaintext+1, "\n");
+                // If there is a token, copy it to the plaintext buffer
+                if (token != NULL) {
+                    strcpy(plaintext, token);
+                    // Check for another token (the key)
+                    token = strtok(NULL, "\n");
+                    if (token != NULL) {
+                        // Copy the second token (the key) to the key buffer
+                        strcpy(key, token);
+                    }
+                }
             }
-            buffer[charsRead] = '\0';
-            // Print the received data
-            // printf("Received data: %s\n", buffer);
-            // printf("Received identifier: %s\n", buffer); // TESTING
-            if (strcmp(buffer, "enc_client") != 0) {
-                fprintf(stderr, "SERVER: ERROR, client is not enc_client\n");
-                close(connectionSocket);
-                exit(1);
-            }
-
-        // Reset charsRead
-        charsRead = 0;
-        // Receive plaintext from the client
-        memset(plaintext, '\0', MAX_BUFFER_SIZE);
-        charsRead = recv(connectionSocket, plaintext, MAX_BUFFER_SIZE - 1, 0);
-        if (charsRead < 0) {
-            error("ERROR reading from socket");
-        }
-
-        // Reset charsRead
-        charsRead = 0;
-
-        // // Receive delimiter from the client
-        // char delimiter;
-        // charsRead = recv(connectionSocket, &delimiter, 1, 0);
-        // if (charsRead < 0) {
-        //     error("ERROR reading from socket");
-        // }
-        // if (delimiter != '#') {
-        //     error("ERROR: Invalid delimiter received\n");
-        // }
-
-
-        // // Reset charsRead
-        // charsRead = 0;
-
-
-        // Receive key from the client
-        memset(key, '\0', MAX_BUFFER_SIZE);
-        charsRead = recv(connectionSocket, key, MAX_BUFFER_SIZE - 1, 0);
-        if (charsRead < 0) {
-            error("ERROR reading from socket");
-        }
 
         // Remove trailing newline from plaintext and key
         plaintext[strcspn(plaintext, "\n")] = '\0';
         key[strcspn(key, "\n")] = '\0';
 
         // Make sure the key is at least as long as the plaintext
-        if (strlen(key) < strlen(buffer)) {
-            fprintf(stderr, "SERVER: ERROR key '%s' is too short\n", key);
+        if (strlen(key) < strlen(plaintext)) {
+            fprintf(stderr, "SERVER: ERROR key '%.100s' is too short\n", key);
             close(connectionSocket);
             exit(1);
         }
@@ -166,14 +208,13 @@ int main(int argc, char *argv[]){
         // Reset charsRead
         charsRead = 0;
 
-        //printf("Plaintext: %s \n Key: %s \n ", plaintext, key);
+        // printf("SERVER: PRIOR TO ENCRYPTION:\nPlaintext: %s \n Key: %s \n ", plaintext, key);
         // Encrypt the plaintext using the key
         //char *ciphertext = malloc((strlen(plaintext) + 1) * sizeof(char));
         memset(ciphertext, '\0', MAX_BUFFER_SIZE);
         encrypt(ciphertext, plaintext, key);
         // printf("Ciphertext: %s", ciphertext);
 
-        
 
         // Send the ciphertext back to the client
         charsRead = send(connectionSocket, ciphertext, strlen(ciphertext), 0);
